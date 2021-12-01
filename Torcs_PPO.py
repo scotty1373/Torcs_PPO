@@ -3,22 +3,19 @@
 import random
 import sys
 sys.path.append("./common/")
-import tensorflow as tf
-import tensorflow.keras as keras
 from collections import deque
 from skimage.color import rgb2gray
 import matplotlib.pyplot as plt
 from common.gym_torcs import TorcsEnv
-from ou_noise import OUNoise
-import pandas as pd
+import torch
 import numpy as np
 import platform
 import time
 import os
 
 LEARNING_RATE_ACTOR = 0.0001
-LEARNING_RATE_CRITIC = 0.001
-MAX_MEMORY_LEN = 32000
+LEARNING_RATE_CRITIC = 0.0001
+BATCH_SIZE = 32
 MAX_STEP_EPISODE = 1000
 TRAINABLE = True
 VISION = True
@@ -42,7 +39,7 @@ class DDPG_NET:
         self.out_shape = num_output
         self.learning_rate_a = LEARNING_RATE_ACTOR
         self.learning_rate_c = LEARNING_RATE_CRITIC
-        self.memory = deque(maxlen=MAX_MEMORY_LEN)
+        self.memory = deque(maxlen=BATCH_SIZE)
         self.channel = CHANNEL
         self.train_start = 300
         self.batch_size = 128
@@ -55,8 +52,6 @@ class DDPG_NET:
         self.critic_model = self.critic_net_build()
         self.actor_target_model = self.actor_net_builder()
         self.critic_target_model = self.critic_net_build()
-        self.OU_angle = OUNoise(action_dimension=1, mu=0, theta=0.6, sigma=0.3)
-        self.OU_accele = OUNoise(action_dimension=1, mu=0.1, theta=1.0, sigma=0.1)
 
         # self.actor_target_model.trainable = False
         # self.critic_target_model.trainable = False
@@ -69,74 +64,6 @@ class DDPG_NET:
     def state_store_memory(self, s, focus_, speedx, a, r, s_t1, focus_t1_, speedx_t1):
         self.memory.append((s, focus_, speedx, a, r, s_t1, focus_t1_, speedx_t1))
 
-    def actor_net_builder(self):
-        input_ = keras.Input(shape=self.input_shape, dtype='float', name='actor_input')
-        input_v = keras.Input(shape=(4,), dtype='float', name='speed_vector')
-        common = keras.layers.Conv2D(16, (8, 8),
-                                     strides=(4, 4),
-                                     activation='relu')(input_)  # 8, 60, 60
-        common = keras.layers.Conv2D(32, (4, 4),
-                                     strides=(3, 3), padding='same',
-                                     activation='relu')(common)  # 64, 20, 20
-        common = keras.layers.Conv2D(64, (3, 3),
-                                     strides=(1, 1), padding='same',
-                                     activation='relu')(common)     # 128, 6, 6
-        common = keras.layers.Conv2D(128, (3, 3),
-                                     padding='same',
-                                     strides=(1, 1),
-                                     activation='relu')(common)
-        # common = keras.layers.BatchNormalization()(common)
-        common = keras.layers.Flatten()(common)
-        common = keras.layers.Dense(units=128, activation='relu')(common)
-        common = keras.layers.Dense(units=16, activation='relu')(common)
-        input_v_proc = keras.layers.Dense(units=16, activation='relu')(input_v)
-        input_v_proc = keras.layers.Flatten()(input_v_proc)
-        concatenated = keras.layers.Concatenate()([common, input_v_proc])
-        concatenated = keras.layers.BatchNormalization()(concatenated)
-
-        actor_angle = keras.layers.Dense(units=self.out_shape, activation='tanh')(concatenated)
-        actor_accela = keras.layers.Dense(units=self.out_shape, activation='sigmoid')(concatenated)
-        model = keras.Model(inputs=[input_, input_v], outputs=[actor_angle, actor_accela], name='actor')
-        return model
-
-    def critic_net_build(self):
-        input_state = keras.Input(shape=self.input_shape,
-                                  dtype='float', name='critic_state_input')
-        input_v = keras.Input(shape=(4,), dtype='float', name='speed_vector')
-        input_actor_angle = keras.Input(shape=self.critic_input_action_shape,
-                                        dtype='float', name='critic_action_angle_input')
-        input_actor_accele = keras.Input(shape=self.critic_input_action_shape,
-                                         dtype='float', name='critic_action_accele_input')
-        common = keras.layers.Conv2D(16, (8, 8),
-                                     strides=(4, 4),
-                                     activation='relu')(input_state)  # 8, 14, 14
-        common = keras.layers.Conv2D(32, (4, 4),
-                                     strides=(3, 3), padding='same',
-                                     activation='relu')(common)  # 64, 5, 5
-        common = keras.layers.Conv2D(64, (3, 3),
-                                     strides=(1, 1), padding='same',
-                                     activation='relu')(common)     # 128, 5, 5
-        common = keras.layers.Conv2D(128, (3, 3),
-                                     strides=(1, 1), padding='same',
-                                     activation='relu')(common)
-        common = keras.layers.BatchNormalization()(common)
-        common = keras.layers.Flatten()(common)
-        common = keras.layers.Dense(units=128, activation='relu')(common)
-        common = keras.layers.Dense(units=16, activation='relu')(common)
-
-        input_v_proc = keras.layers.Dense(units=16, activation='relu')(input_v)
-        input_v_proc = keras.layers.Flatten()(input_v_proc)
-        actor_angle_in = keras.layers.Dense(units=8, activation='relu')(input_actor_angle)
-        actor_accele_in = keras.layers.Dense(units=8, activation='relu')(input_actor_accele)
-
-        concatenated = keras.layers.Concatenate()([common, input_v_proc, actor_angle_in, actor_accele_in])
-        concatenated = keras.layers.BatchNormalization()(concatenated)
-
-        critic_output = keras.layers.Dense(units=self.out_shape)(concatenated)
-        model = keras.Model(inputs=[input_state, input_v, input_actor_angle, input_actor_accele],
-                            outputs=critic_output,
-                            name='critic')
-        return model
 
     @staticmethod
     def image_process(obs):
@@ -176,43 +103,6 @@ class DDPG_NET:
             img_data[:, :, i] = 255 - img[:, i].reshape((64, 64))
         img_data = rgb2gray(img_data/255).reshape(1, img_data.shape[0], img_data.shape[1], 1)
         return focus_, speedX_, speedY_, speedZ_, opponent_, rpm_, trackPos_, wheelSpinel_, img_data, trackPos
-
-    def action_choose(self, input_):
-        angle_, accele_ = self.actor_model(input_)
-        # angle_ = tf.multiply(angle_, self.angle_range)
-        # accele_ = tf.multiply(accele_, self.accele_range)
-        return angle_, accele_
-
-    # Exponential Moving Average update weight
-    def weight_soft_update(self):
-        for i, j in zip(self.critic_model.trainable_weights, self.critic_target_model.trainable_weights):
-            j.assign(j * DECAY + i * (1 - DECAY))
-        for i, j in zip(self.actor_model.trainable_weights, self.actor_target_model.trainable_weights):
-            j.assign(j * DECAY + i * (1 - DECAY))
-
-    def weight_hard_update(self):
-        self.actor_target_model.set_weights(self.actor_model.get_weights())
-        self.critic_target_model.set_weights(self.critic_model.get_weights())
-
-    '''
-    for now the critic loss return target and real q value, that's
-    because I wanna tape the gradient in one gradienttape, if the result
-    is not good enough, split the q_real in another gradienttape to update
-    actor network!!!
-    '''
-
-    def critic_loss(self, s, speedx_, r, s_t1, speedx_t1, a):
-        # critic model q real
-        q_real = self.critic_model([s, speedx_, a[:, 0, :], a[:, 1, :]])
-        # target critic model q estimate
-        a_t1 = self.actor_target_model([s_t1, speedx_])    # actor denormalization waiting!!!, doesn't matter with the truth action
-        a_t1_ang, a_t1_acc = tf.split(a_t1, 2, axis=0)
-        q_estimate = self.critic_target_model([s_t1, speedx_t1,
-                                               tf.squeeze(a_t1_ang, axis=0),
-                                               tf.squeeze(a_t1_acc, axis=0)])
-        # TD-target
-        q_target = r + q_estimate * self.gamma
-        return q_target, q_real
 
     def train_replay(self):
         if len(self.memory) < self.train_start:
@@ -267,8 +157,6 @@ if __name__ == '__main__':
     action_range = env.action_space.high            # [1., 1., 1.]  ~  [-1.,  0.,  0.]
 
     agent = DDPG_NET((64, 64, 4), np.ndim(action_shape), action_range[0], action_range[1])
-    agent.actor_model.summary()
-    agent.critic_model.summary()
     epochs = 400
     timestep = 0
     count = 0
@@ -300,10 +188,6 @@ if __name__ == '__main__':
                 agent.OU_accele.sigma *= 0.995
                 ang_net = np.clip(ang_net, -action_range[0] + 0.5, action_range[0] - 0.5)
                 acc_net = np.clip(acc_net, 0, action_range[1] - 0.5)
-                # ang_net = np.clip(np.random.normal(loc=ang_net, scale=agent.sigma_fixed),
-                #                   -action_range[0], action_range[0])
-                # acc_net = np.clip(np.random.normal(loc=acc_net, scale=agent.sigma_fixed),
-                #                   0, action_range[1])
             else:
                 pass
 
