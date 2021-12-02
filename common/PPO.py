@@ -154,19 +154,17 @@ class PPO:
         act_acc = action_acc
         act_ori = action_ori
         d_reward = np.concatenate(discount_reward_).reshape(-1, 1)
-        adv = self.advantage_calcu(d_reward, state_, speed_cache)
-
-        for i in range(self.update_critic_epoch):
-            with torch.autograd.set_detect_anomaly(True):
-                self.critic_update(state_, speed_cache, d_reward)
-            print(f'epochs: {self.ep}, timestep: {self.t}, critic_loss: {self.history_critic}')
+        adv = self.advantage_calcu(d_reward, state_, speed_cache).detach()
 
         for i in range(self.update_actor_epoch):
             with torch.autograd.set_detect_anomaly(True):
                 self.actor_update(state_, speed_cache, act_acc, act_ori, adv)
-            print(f'epochs: {self.ep}, timestep: {self.t}, actor_loss: {self.history_actor}')
+            print(f'epochs: {self.ep}, timesteps: {self.t}, actor_loss: {self.history_actor}')
 
-
+        for i in range(self.update_critic_epoch):
+            with torch.autograd.set_detect_anomaly(True):
+                self.critic_update(state_, speed_cache, d_reward)
+            print(f'epochs: {self.ep}, timesteps: {self.t}, critic_loss: {self.history_critic}')
 
     def save_model(self, name):
         torch.save({'common': self.common.state_dict(),

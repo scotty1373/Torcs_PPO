@@ -88,7 +88,7 @@ if __name__ == '__main__':
             state_t = state_t1
             speedX = speedX_t1
 
-            if (t+1) % agent.batch_size == 0 or t == (MAX_STEP_EPISODE - 1) or done:
+            if (t+1) % agent.batch_size == 0 or t == (MAX_STEP_EPISODE - 1):
                 s_t, sx_t, a_acc, a_ori, rd, _, _ = zip(*agent.memory)
                 s_t = np.concatenate(s_t).squeeze()
                 sx_t = np.concatenate(sx_t).squeeze()
@@ -101,6 +101,11 @@ if __name__ == '__main__':
                 agent.memory.clear()
 
             agent.t += 1
+
+            if done:
+                print('env done!!!')
+                agent.memory.clear()
+                break
         ep_history.append(ep_rh)
         agent.ep += 1
         print(f'epoch: {ep}, timestep: {agent.t}, reward_summary: {ep_rh}, ')
