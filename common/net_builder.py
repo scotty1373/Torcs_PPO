@@ -5,6 +5,7 @@ from torch import nn
 from torch.distributions import Normal
 from itertools import chain
 
+
 class Common(nn.Module):
     def __init__(self, in_channel):
         super(Common, self).__init__()
@@ -20,12 +21,8 @@ class Common(nn.Module):
         self.Conv4 = nn.Conv2d(in_channels=128, out_channels=256,
                                kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
         self.activation4 = nn.ReLU(inplace=True)
-
         self.Dense1 = nn.Linear(6400, 512)
-        self.activation5 = nn.ReLU(inplace=True)
-
         self.position = nn.Linear(4, 64)
-        self.posactivation = nn.ReLU(inplace=True)
 
     def forward(self, x, y):
         common = self.Conv1(x)
@@ -38,11 +35,8 @@ class Common(nn.Module):
         common = self.activation4(common)
         common = torch.flatten(common, start_dim=1, end_dim=-1)
 
-        vehicle_pos = self.position(y)
-        vehicle_pos = self.posactivation(vehicle_pos)
-
         down_shape_vector = self.Dense1(common)
-        down_shape_vector = self.activation5(down_shape_vector)
+        vehicle_pos = self.position(y)
 
         concat_vector = torch.cat([down_shape_vector, vehicle_pos], dim=1)
         return concat_vector
@@ -52,14 +46,14 @@ class Actor_builder(nn.Module):
     def __init__(self):
         super(Actor_builder, self).__init__()
         self.acc_commonDense1 = nn.Linear(576, 128)
-        self.acc_meanact1 = nn.ReLU(inplace=True)
+        self.acc_meanact1 = nn.ReLU()
         self.acc_meanDense2 = nn.Linear(128, 1)
         self.acc_meanout = nn.Tanh()
         self.acc_sigmaDense1 = nn.Linear(128, 1)
         self.acc_sigmaout = nn.Softplus()
 
         self.ori_commonDense1 = nn.Linear(576, 128)
-        self.ori_meanact1 = nn.ReLU(inplace=True)
+        self.ori_meanact1 = nn.ReLU()
         self.ori_meanDense2 = nn.Linear(128, 1)
         self.ori_meanout = nn.Tanh()
         self.ori_sigmaDense1 = nn.Linear(128, 1)

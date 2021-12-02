@@ -176,9 +176,11 @@ class Client():
                     os.system(f'echo {sudo_pw} | sudo -S pkill torcs')
                     time.sleep(1.0)
                     if self.vision is False:
-                        os.system(f'echo {sudo_pw} | sudo -S torcs -nofuel -nodamage -nolaptime &')
+                        os.system(f'torcs -nofuel -nodamage -nolaptime &')
+                        # os.system(f'echo {sudo_pw} | sudo -S torcs -nofuel -nodamage -nolaptime &')
                     else:
-                        os.system(f'echo {sudo_pw} | sudo -S torcs -nofuel -nodamage -nolaptime -vision &')
+                        os.system(f'torcs -nofuel -nodamage -nolaptime -vision &')
+                        # os.system(f'echo {sudo_pw} | sudo -S torcs -nofuel -nodamage -nolaptime -vision &')
 
                     time.sleep(1.0)
                     os.system(f'sh autostart.sh')

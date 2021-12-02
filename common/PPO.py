@@ -1,9 +1,11 @@
+import numpy
 import torch
 from net_builder import Common, Actor_builder, Critic_builder
 from torch.distributions import Normal
 from itertools import chain
 from collections import deque
 from skimage.color import rgb2gray
+from PIL import Image
 import numpy as np
 import copy
 
@@ -11,6 +13,7 @@ LEARNING_RATE_ACTOR = 1e-4
 LEARNING_RATE_CRITIC = 1e-4
 DECAY = 0.95
 EPILSON = 0.2
+
 
 class PPO:
     def __init__(self, in_channel, in_shape, action_space, batch_size):
@@ -40,6 +43,8 @@ class PPO:
         self.piold = Actor_builder()
         self.v = Critic_builder()
         self.memory = deque(maxlen=train_batch)
+        self.commonold.eval()
+        self.piold.eval()
 
     def get_action(self, obs_, speed_):
         obs_ = torch.Tensor(copy.deepcopy(obs_))
@@ -49,11 +54,11 @@ class PPO:
         common_feature = self.common(obs_, speed_)
         (acc_m, acc_s), (ori_m, ori_s) = self.pi(common_feature)
         # print(f'mu: {mean.cpu().item()}')
-        dist = Normal(ori_m.cpu().detach(), ori_s.cpu().detach())
+        orie = Normal(ori_m.cpu().detach(), ori_s.cpu().detach())
         accel = Normal(acc_m.cpu().detach(), acc_s.cpu().detach())
 
-        prob_ori = dist.sample()
-        log_prob_ori = dist.log_prob(prob_ori)
+        prob_ori = orie.sample()
+        log_prob_ori = orie.log_prob(prob_ori)
         prob_accel = accel.sample()
         log_prob_accel = accel.log_prob(prob_accel)
 
@@ -103,7 +108,7 @@ class PPO:
     def actor_update(self, state, speed_, action_acc, action_ori, advantage):
         action_acc = torch.FloatTensor(action_acc)
         action_ori = torch.FloatTensor(action_ori)
-        self.a_opt.zero_grad()
+        
         feature_common = self.common(state, speed_)
         feature_common_old = self.commonold(state, speed_)
         (pi_acc_m, pi_acc_s), (pi_ori_m, pi_ori_s) = self.pi(feature_common)
@@ -133,6 +138,7 @@ class PPO:
         acc_loss = torch.min(torch.cat((surrogate1_acc, surrogate2_acc), dim=1), dim=1)[0]
         ori_loss = torch.min(torch.cat((surrogate1_ori, surrogate2_ori), dim=1), dim=1)[0]
 
+        self.a_opt.zero_grad()
         actor_loss = acc_loss + ori_loss
         actor_loss = -torch.mean(actor_loss)
         self.history_actor = actor_loss.detach().item()
@@ -150,13 +156,17 @@ class PPO:
         d_reward = np.concatenate(discount_reward_).reshape(-1, 1)
         adv = self.advantage_calcu(d_reward, state_, speed_cache)
 
+        for i in range(self.update_critic_epoch):
+            with torch.autograd.set_detect_anomaly(True):
+                self.critic_update(state_, speed_cache, d_reward)
+            print(f'epochs: {self.ep}, timestep: {self.t}, critic_loss: {self.history_critic}')
+
         for i in range(self.update_actor_epoch):
-            self.actor_update(state_, speed_cache, act_acc, act_ori, adv)
+            with torch.autograd.set_detect_anomaly(True):
+                self.actor_update(state_, speed_cache, act_acc, act_ori, adv)
             print(f'epochs: {self.ep}, timestep: {self.t}, actor_loss: {self.history_actor}')
 
-        for i in range(self.update_critic_epoch):
-            self.critic_update(state_, speed_cache, d_reward)
-            print(f'epochs: {self.ep}, timestep: {self.t}, critic_loss: {self.history_critic}')
+
 
     def save_model(self, name):
         torch.save({'common': self.common.state_dict(),
@@ -202,6 +212,9 @@ class PPO:
         trackPos = obs_[9]
         img_data = np.zeros(shape=(64, 64, 3))
         for i in range(3):
-            img_data[:, :, i] = 255 - img[:, i].reshape((64, 64))
-        img_data = rgb2gray(img_data / 255).reshape(1, img_data.shape[0], img_data.shape[1], 1)
+            # img_data[:, :, i] = 255 - img[:, i].reshape((64, 64))
+            img_data[:, :, i] = img[:, i].reshape((64, 64))
+        img_data = Image.fromarray(img_data.astype(np.uint8))
+        img_data = np.array(img_data.transpose(Image.FLIP_TOP_BOTTOM))
+        img_data = rgb2gray(img_data).reshape(1, 1, img_data.shape[0], img_data.shape[1])
         return focus_, speedX_, speedY_, speedZ_, opponent_, rpm_, trackPos_, wheelSpinel_, img_data, trackPos

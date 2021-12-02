@@ -54,8 +54,6 @@ if __name__ == '__main__':
 
     agent = PPO(in_channel=CHANNEL, in_shape=VISION_SHAPE, action_space=action_range, batch_size=BATCH_SIZE)
     epochs = 500
-    timestep = 0
-    count = 0
     ep_history = []
 
     for ep in range(epochs):
@@ -68,19 +66,19 @@ if __name__ == '__main__':
 
         # 数据维度初始化
         _, speedX, _, _, _, _, track, _, image, _ = agent.data_pcs(obs)
-        state_t = np.stack((image, image, image, image), axis=3).reshape((1, 64, 64, -1))
+        state_t = np.stack((image, image, image, image), axis=0).reshape((1, -1, 64, 64))
         speedX = np.array(speedX).reshape(1)
         speedX = np.stack((speedX, speedX, speedX, speedX), axis=1)
 
         for t in range(MAX_STEP_EPISODE):
-            (action_acc, logprob_acc_), (action_ori, logprob_ori_) = agent.get_action(obs, speedX)
+            (action_acc, logprob_acc_), (action_ori, logprob_ori_) = agent.get_action(state_t, speedX)
 
             action = np.array((action_acc.detach().numpy(), action_ori.detach().numpy()), dtype='float')
             obs_t1, reward, done, _ = env.step(action)
             focus_t1, speedX_t1, _, _, _, _, track_t1, _, image_t1, _ = agent.data_pcs(obs_t1)
-            state_t1 = np.append(obs[:, :, :, 1:], image_t1, axis=3)
+            state_t1 = np.append(image_t1, state_t[:, :3, :, :], axis=1)
             speedX_t1 = np.reshape(speedX_t1, (1, 1))
-            speedX_t1 = np.append(speedX[:, 1:], speedX_t1, axis=1)
+            speedX_t1 = np.append(speedX_t1, speedX[:, :3], axis=1)
             ep_rh += reward
 
             agent.state_store_memory(state_t, speedX, action_acc.detach().numpy().reshape(-1, 1),
