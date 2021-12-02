@@ -18,7 +18,7 @@ class TorcsEnv:
     initial_reset = True
 
     def __init__(self, vision=False, throttle=False, gear_change=False):
-       #print("Init")
+        #print("Init")
         self.vision = vision
         self.throttle = throttle
         self.gear_change = gear_change

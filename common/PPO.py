@@ -3,11 +3,14 @@ from net_builder import Common, Actor_builder, Critic_builder
 from torch.distributions import Normal
 from itertools import chain
 from collections import deque
+from skimage.color import rgb2gray
 import numpy as np
 import copy
 
 LEARNING_RATE_ACTOR = 1e-4
 LEARNING_RATE_CRITIC = 1e-4
+DECAY = 0.95
+EPILSON = 0.2
 
 class PPO:
     def __init__(self, in_channel, in_shape, action_space, batch_size):
@@ -18,8 +21,8 @@ class PPO:
         self._init(self.input_channel, self.batch_size)
         self.lr_actor = LEARNING_RATE_ACTOR
         self.lr_critic = LEARNING_RATE_CRITIC
-        self.decay_index = 0.95
-        self.epilson = 0.2
+        self.decay_index = DECAY
+        self.epilson = EPILSON
         self.c_loss = torch.nn.MSELoss()
         self.c_opt = torch.optim.Adam(params=chain(self.common.parameters(), self.v.parameters()), lr=self.lr_critic)
         self.a_opt = torch.optim.Adam(params=chain(self.common.parameters(), self.pi.parameters()), lr=self.lr_actor)
@@ -59,8 +62,8 @@ class PPO:
 
         return (prob_accel, log_prob_accel), (prob_ori, log_prob_ori)
 
-    def state_store_memory(self, s, acc, ori, r, logprob_acc, logprob_ori):
-        self.memory.append((s, acc, ori, r, logprob_acc, logprob_ori))
+    def state_store_memory(self, s, v, acc, ori, r, logprob_acc, logprob_ori):
+        self.memory.append((s, v, acc, ori, r, logprob_acc, logprob_ori))
 
     # 计算reward衰减，根据马尔可夫过程，从最后一个reward向前推
     def decayed_reward(self, singal_state_frame, singal_speed_frame, reward_):
@@ -106,39 +109,99 @@ class PPO:
         (pi_acc_m, pi_acc_s), (pi_ori_m, pi_ori_s) = self.pi(feature_common)
         (pi_acc_m_old, pi_acc_s_old), (pi_ori_m_old, pi_ori_s_old) = self.piold(feature_common_old)
 
-        pi_dist_acc = Normal(pi_, pi_sigma)
-        pi_dist_old = Normal(pi_mean_old, pi_sigma_old)
+        pi_dist_acc = Normal(pi_acc_m, pi_acc_s)
+        pi_dist_acc_old = Normal(pi_acc_m_old, pi_acc_s_old)
 
-        logprob_ = pi_dist.log_prob(action_acc.reshape(-1, 1))
-        logprob_old = pi_dist_old.log_prob(action_acc.reshape(-1, 1))
+        pi_dist_ori = Normal(pi_ori_m, pi_ori_s)
+        pi_dist_ori_old = Normal(pi_ori_m_old, pi_ori_s_old)
 
-        ratio = torch.exp(logprob_ - logprob_old)
-        surrogate1 = ratio * advantage
-        surrogate2 = torch.clamp(ratio, 1-self.epilson, 1+self.epilson) * advantage
+        logprob_acc = pi_dist_acc.log_prob(action_acc.reshape(-1, 1))
+        logprob_acc_old = pi_dist_acc_old.log_prob(action_acc.reshape(-1, 1))
 
-        actor_loss = torch.min(torch.cat((surrogate1, surrogate2), dim=1), dim=1)[0]
+        logprob_ori = pi_dist_ori.log_prob(action_ori.reshape(-1, 1))
+        logprob_ori_old = pi_dist_ori_old.log_prob(action_ori.reshape(-1, 1))
+
+        ratio_acc = torch.exp(logprob_acc - logprob_acc_old)
+        ratio_ori = torch.exp(logprob_ori - logprob_ori_old)
+
+        surrogate1_acc = ratio_acc * advantage
+        surrogate2_acc = torch.clamp(ratio_acc, 1-self.epilson, 1+self.epilson) * advantage
+
+        surrogate1_ori = ratio_ori * advantage
+        surrogate2_ori = torch.clamp(ratio_ori, 1-self.epilson, 1+self.epilson) * advantage
+
+        acc_loss = torch.min(torch.cat((surrogate1_acc, surrogate2_acc), dim=1), dim=1)[0]
+        ori_loss = torch.min(torch.cat((surrogate1_ori, surrogate2_ori), dim=1), dim=1)[0]
+
+        actor_loss = acc_loss + ori_loss
         actor_loss = -torch.mean(actor_loss)
         self.history_actor = actor_loss.detach().item()
 
         actor_loss.backward(retain_graph=True)
         self.a_opt.step()
 
-    def update(self, state, action_, discount_reward_):
+    def update(self, state, speed_, action_acc, action_ori, discount_reward_):
         self.hard_update(self.pi, self.piold)
+        self.hard_update(self.common, self.commonold)
         state_ = torch.Tensor(state)
-        act = action_
+        speed_cache = torch.Tensor(speed_)
+        act_acc = action_acc
+        act_ori = action_ori
         d_reward = np.concatenate(discount_reward_).reshape(-1, 1)
-        adv = self.advantage_calcu(d_reward, state_)
+        adv = self.advantage_calcu(d_reward, state_, speed_cache)
 
         for i in range(self.update_actor_epoch):
-            self.actor_update(state_, act, adv)
+            self.actor_update(state_, speed_cache, act_acc, act_ori, adv)
             print(f'epochs: {self.ep}, timestep: {self.t}, actor_loss: {self.history_actor}')
 
         for i in range(self.update_critic_epoch):
-            self.critic_update(state_, d_reward)
+            self.critic_update(state_, speed_cache, d_reward)
             print(f'epochs: {self.ep}, timestep: {self.t}, critic_loss: {self.history_critic}')
+
+    def save_model(self, name):
+        torch.save({'common': self.common.state_dict(),
+                    'actor': self.pi.state_dict(),
+                    'critic': self.v.state_dict(),
+                    'opt_actor': self.a_opt.state_dict(),
+                    'opt_critic': self.c_opt.state_dict()}, name)
+
+    def load_model(self, name):
+        checkpoints = torch.load(name)
+        self.common.load_state_dict(checkpoints['common'])
+        self.pi.load_state_dict(checkpoints['actor'])
+        self.v.load_state_dict(checkpoints['critic'])
+        self.a_opt.load_state_dict(checkpoints['opt_actor'])
+        self.c_opt.load_state_dict(checkpoints['opt_critic'])
 
     @staticmethod
     def hard_update(model, target_model):
         weight_model = copy.deepcopy(model.state_dict())
         target_model.load_state_dict(weight_model)
+
+    @staticmethod
+    def data_pcs(obs_: dict):
+        names = ['focus',
+                 'speedX', 'speedY', 'speedZ',
+                 'opponents',
+                 'rpm',
+                 'trackPos',
+                 'wheelSpinVel',
+                 'img',
+                 'trackPos']
+        # for i in range(len(names)):
+        #     exec('%s = obs_[i]' %names[i])
+        focus_ = obs_[0]
+        speedX_ = obs_[1]
+        speedY_ = obs_[2]
+        speedZ_ = obs_[3]
+        opponent_ = obs_[4]
+        rpm_ = obs_[5]
+        trackPos_ = obs_[6]
+        wheelSpinel_ = obs_[7]
+        img = obs_[8]
+        trackPos = obs_[9]
+        img_data = np.zeros(shape=(64, 64, 3))
+        for i in range(3):
+            img_data[:, :, i] = 255 - img[:, i].reshape((64, 64))
+        img_data = rgb2gray(img_data / 255).reshape(1, img_data.shape[0], img_data.shape[1], 1)
+        return focus_, speedX_, speedY_, speedZ_, opponent_, rpm_, trackPos_, wheelSpinel_, img_data, trackPos
