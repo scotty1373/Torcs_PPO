@@ -23,7 +23,7 @@ class Common(nn.Module):
         self.activation4 = nn.ReLU(inplace=True)
         self.Dense1 = nn.Linear(6400, 512)
         self.Dense1act = nn.ReLU(inplace=True)
-        self.position = nn.Linear(4, 64)
+        self.position = nn.Linear(4, 128)
 
     def forward(self, x, y):
         common = self.Conv1(x)
@@ -50,20 +50,20 @@ class Actor_builder(nn.Module):
         # self.common = nn.Linear(6528, 512)
         # self.common_act = nn.ReLU()
 
-        self.acc_commonDense1 = nn.Linear(576, 128)
+        self.acc_commonDense1 = nn.Linear(640, 256)
         self.acc_meanact1 = nn.ReLU()
-        self.acc_meanDense2 = nn.Linear(128, 1)
+        self.acc_meanDense2 = nn.Linear(256, 1)
         self.acc_meanout = nn.Tanh()
-        self.acc_sigmaDense1 = nn.Linear(128, 1)
+        self.acc_sigmaDense1 = nn.Linear(256, 1)
         self.acc_sigmaout = nn.Softplus()
 
-        self.ori_commonDense1 = nn.Linear(576, 128)
+        self.ori_commonDense1 = nn.Linear(640, 256)
         self.ori_meanact1 = nn.ReLU()
-        self.ori_meanDense2 = nn.Linear(128, 1)
-        torch.nn.init.uniform_(self.ori_meanDense2.weight, a=-1e-3, b=1e-3)
+        self.ori_meanDense2 = nn.Linear(256, 1)
+        torch.nn.init.uniform_(self.ori_meanDense2.weight, a=-1e-5, b=1e-5)
         self.ori_meanout = nn.Tanh()
-        self.ori_sigmaDense1 = nn.Linear(128, 1)
-        torch.nn.init.uniform_(self.ori_sigmaDense1.weight, a=-1e-3, b=1e-3)
+        self.ori_sigmaDense1 = nn.Linear(256, 1)
+        torch.nn.init.uniform_(self.ori_sigmaDense1.weight, a=-1e-5, b=1e-5)
         self.ori_sigmaout = nn.Softplus()
 
     def forward(self, common):
@@ -89,16 +89,12 @@ class Actor_builder(nn.Module):
 class Critic_builder(nn.Module):
     def __init__(self):
         super(Critic_builder, self).__init__()
-        self.common = nn.Linear(576, 512)
-        self.common_act = nn.ReLU()
-        self.vDense1 = nn.Linear(512, 128)
+        self.vDense1 = nn.Linear(640, 256)
         self.vact1 = nn.ReLU(inplace=True)
-        self.vDense2 = nn.Linear(128, 1)
+        self.vDense2 = nn.Linear(256, 1)
 
     def forward(self, common):
-        common_data = self.common(common)
-        common_data = self.common_act(common_data)
-        critic_common = self.vDense1(common_data)
+        critic_common = self.vDense1(common)
         critic_value = self.vact1(critic_common)
         critic_value = self.vDense2(critic_value)
         return critic_value

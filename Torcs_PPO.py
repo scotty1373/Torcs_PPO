@@ -13,7 +13,7 @@ import time
 import os
 
 
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 MAX_STEP_EPISODE = 1000
 TRAINABLE = True
 VISION = True
@@ -73,13 +73,13 @@ if __name__ == '__main__':
         for t in range(MAX_STEP_EPISODE):
             (action_acc, logprob_acc_), (action_ori, logprob_ori_) = agent.get_action(state_t, speedX)
 
-            action = np.array((action_acc.detach().numpy(), action_ori.detach().numpy()), dtype='float')
+            action = np.array((action_ori.detach().numpy(), action_acc.detach().numpy()), dtype='float')
             obs_t1, reward, done, _ = env.step(action)
             focus_t1, _, _, _, _, _, track_t1, _, image_t1, speedX_t1 = agent.data_pcs(obs_t1)
             state_t1 = np.append(image_t1, state_t[:, :3, :, :], axis=1)
             speedX_t1 = np.reshape(speedX_t1, (1, 1))
             speedX_t1 = np.append(speedX_t1, speedX[:, :3], axis=1)
-            print(reward)
+            print(action_ori)
             ep_rh += reward
 
             agent.state_store_memory(state_t, speedX, action_acc.detach().numpy().reshape(-1, 1),

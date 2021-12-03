@@ -9,8 +9,8 @@ from PIL import Image
 import numpy as np
 import copy
 
-LEARNING_RATE_ACTOR = 1e-5
-LEARNING_RATE_CRITIC = 1e-5
+LEARNING_RATE_ACTOR = 1e-4
+LEARNING_RATE_CRITIC = 1e-4
 DECAY = 0.95
 EPILSON = 0.2
 torch.autograd.set_detect_anomaly(True)
@@ -62,7 +62,7 @@ class PPO:
 
         prob_ori = torch.clamp(orie.sample(), -0.5, 0.5)
         log_prob_ori = orie.log_prob(prob_ori)
-        prob_accel = torch.clamp(accel.sample(), -0.3, 1)
+        prob_accel = torch.clamp(accel.sample(), -0.3, 0.5)
         log_prob_accel = accel.log_prob(prob_accel)
 
         self.common.train()
@@ -106,6 +106,7 @@ class PPO:
         self.history_critic = critic_loss.detach().item()
         self.c_opt.zero_grad()
         critic_loss.backward(retain_graph=True)
+        torch.nn.utils.clip_grad_norm(chain(self.common.parameters(), self.v.parameters()), max_norm=5, norm_type=2)
         self.c_opt.step()
 
     def actor_update(self, state, speed_, action_acc, action_ori, advantage):
