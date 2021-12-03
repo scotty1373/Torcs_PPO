@@ -9,10 +9,11 @@ from PIL import Image
 import numpy as np
 import copy
 
-LEARNING_RATE_ACTOR = 1e-4
-LEARNING_RATE_CRITIC = 1e-4
+LEARNING_RATE_ACTOR = 1e-5
+LEARNING_RATE_CRITIC = 1e-5
 DECAY = 0.95
 EPILSON = 0.2
+torch.autograd.set_detect_anomaly(True)
 
 
 class PPO:
@@ -29,8 +30,8 @@ class PPO:
         self.c_loss = torch.nn.MSELoss()
         self.c_opt = torch.optim.Adam(params=chain(self.common.parameters(), self.v.parameters()), lr=self.lr_critic)
         self.a_opt = torch.optim.Adam(params=chain(self.common.parameters(), self.pi.parameters()), lr=self.lr_actor)
-        self.update_actor_epoch = 5
-        self.update_critic_epoch = 5
+        self.update_actor_epoch = 3
+        self.update_critic_epoch = 3
         self.history_critic = 0
         self.history_actor = 0
         self.t = 0
@@ -54,12 +55,14 @@ class PPO:
         common_feature = self.common(obs_, speed_)
         (acc_m, acc_s), (ori_m, ori_s) = self.pi(common_feature)
         # print(f'mu: {mean.cpu().item()}')
-        orie = Normal(ori_m.cpu().detach(), ori_s.cpu().detach())
-        accel = Normal(acc_m.cpu().detach(), acc_s.cpu().detach())
 
-        prob_ori = orie.sample()
+        # 增加1e-8防止正态分布计算时除法越界
+        orie = Normal(ori_m.cpu().detach(), ori_s.cpu().detach() + 1e-8)
+        accel = Normal(acc_m.cpu().detach(), acc_s.cpu().detach() + 1e-8)
+
+        prob_ori = torch.clamp(orie.sample(), -0.5, 0.5)
         log_prob_ori = orie.log_prob(prob_ori)
-        prob_accel = accel.sample()
+        prob_accel = torch.clamp(accel.sample(), -0.3, 1)
         log_prob_accel = accel.log_prob(prob_accel)
 
         self.common.train()
@@ -106,45 +109,68 @@ class PPO:
         self.c_opt.step()
 
     def actor_update(self, state, speed_, action_acc, action_ori, advantage):
-        action_acc = torch.FloatTensor(action_acc)
-        action_ori = torch.FloatTensor(action_ori)
-        
-        feature_common = self.common(state, speed_)
-        feature_common_old = self.commonold(state, speed_)
-        (pi_acc_m, pi_acc_s), (pi_ori_m, pi_ori_s) = self.pi(feature_common)
-        (pi_acc_m_old, pi_acc_s_old), (pi_ori_m_old, pi_ori_s_old) = self.piold(feature_common_old)
+        with torch.autograd.detect_anomaly():
+            action_acc = torch.FloatTensor(action_acc)
+            action_ori = torch.FloatTensor(action_ori)
 
-        pi_dist_acc = Normal(pi_acc_m, pi_acc_s)
-        pi_dist_acc_old = Normal(pi_acc_m_old, pi_acc_s_old)
+            feature_common = self.common(state, speed_)
+            feature_common_old = self.commonold(state, speed_)
+            (pi_acc_m, pi_acc_s), (pi_ori_m, pi_ori_s) = self.pi(feature_common)
+            (pi_acc_m_old, pi_acc_s_old), (pi_ori_m_old, pi_ori_s_old) = self.piold(feature_common_old)
 
-        pi_dist_ori = Normal(pi_ori_m, pi_ori_s)
-        pi_dist_ori_old = Normal(pi_ori_m_old, pi_ori_s_old)
+            if torch.any(torch.isnan(pi_ori_s)):
+                print('invild value sigma pi')
 
-        logprob_acc = pi_dist_acc.log_prob(action_acc.reshape(-1, 1))
-        logprob_acc_old = pi_dist_acc_old.log_prob(action_acc.reshape(-1, 1))
+            if torch.any(torch.isnan(pi_acc_s)):
+                print('invild value sigma pi')
+            # print(pi_acc_m, pi_acc_s)
+            # print(pi_ori_m, pi_ori_s)
 
-        logprob_ori = pi_dist_ori.log_prob(action_ori.reshape(-1, 1))
-        logprob_ori_old = pi_dist_ori_old.log_prob(action_ori.reshape(-1, 1))
+            # 增加1e-8防止正态分布计算时除法越界
+            pi_dist_acc = Normal(pi_acc_m, pi_acc_s + 1e-8)
+            pi_dist_acc_old = Normal(pi_acc_m_old, pi_acc_s_old + 1e-8)
 
-        ratio_acc = torch.exp(logprob_acc - logprob_acc_old)
-        ratio_ori = torch.exp(logprob_ori - logprob_ori_old)
+            # 增加1e-8防止正态分布计算时除法越界
+            pi_dist_ori = Normal(pi_ori_m, pi_ori_s + 1e-8)
+            pi_dist_ori_old = Normal(pi_ori_m_old, pi_ori_s_old + 1e-8)
 
-        surrogate1_acc = ratio_acc * advantage
-        surrogate2_acc = torch.clamp(ratio_acc, 1-self.epilson, 1+self.epilson) * advantage
+            logprob_acc = pi_dist_acc.log_prob(action_acc.reshape(-1, 1))
+            logprob_acc_old = pi_dist_acc_old.log_prob(action_acc.reshape(-1, 1))
 
-        surrogate1_ori = ratio_ori * advantage
-        surrogate2_ori = torch.clamp(ratio_ori, 1-self.epilson, 1+self.epilson) * advantage
+            logprob_ori = pi_dist_ori.log_prob(action_ori.reshape(-1, 1))
+            logprob_ori_old = pi_dist_ori_old.log_prob(action_ori.reshape(-1, 1))
 
-        acc_loss = torch.min(torch.cat((surrogate1_acc, surrogate2_acc), dim=1), dim=1)[0]
-        ori_loss = torch.min(torch.cat((surrogate1_ori, surrogate2_ori), dim=1), dim=1)[0]
+            ratio_acc = torch.exp(logprob_acc - logprob_acc_old)
+            ratio_ori = torch.exp(logprob_ori - logprob_ori_old)
 
-        self.a_opt.zero_grad()
-        actor_loss = acc_loss + ori_loss
-        actor_loss = -torch.mean(actor_loss)
-        self.history_actor = actor_loss.detach().item()
+            if torch.any(torch.isnan(ratio_acc)) or torch.any(torch.isinf(ratio_acc)):
+                print('invild value sigma pi')
 
-        actor_loss.backward(retain_graph=True)
-        self.a_opt.step()
+            if torch.any(torch.isnan(ratio_ori)) or torch.any(torch.isinf(ratio_ori)):
+                print('invild value sigma pi')
+
+            print(ratio_acc)
+            print(ratio_ori)
+
+            # 切换ratio中inf值为固定值，防止inf进入backward计算
+            ratio_ori = torch.where(torch.isinf(ratio_ori), torch.full_like(ratio_ori, 3), ratio_ori)
+
+            surrogate1_acc = ratio_acc * advantage
+            surrogate2_acc = torch.clamp(ratio_acc, 1-self.epilson, 1+self.epilson) * advantage
+
+            surrogate1_ori = ratio_ori * advantage
+            surrogate2_ori = torch.clamp(ratio_ori, 1-self.epilson, 1+self.epilson) * advantage
+
+            acc_loss = torch.min(torch.cat((surrogate1_acc, surrogate2_acc), dim=1), dim=1)[0]
+            ori_loss = torch.min(torch.cat((surrogate1_ori, surrogate2_ori), dim=1), dim=1)[0]
+
+            self.a_opt.zero_grad()
+            actor_loss = acc_loss + ori_loss
+            actor_loss = -torch.mean(actor_loss)
+            self.history_actor = actor_loss.detach().item()
+
+            actor_loss.backward(retain_graph=True)
+            self.a_opt.step()
 
     def update(self, state, speed_, action_acc, action_ori, discount_reward_):
         self.hard_update(self.pi, self.piold)
@@ -157,13 +183,11 @@ class PPO:
         adv = self.advantage_calcu(d_reward, state_, speed_cache).detach()
 
         for i in range(self.update_actor_epoch):
-            with torch.autograd.set_detect_anomaly(True):
-                self.actor_update(state_, speed_cache, act_acc, act_ori, adv)
+            self.actor_update(state_, speed_cache, act_acc, act_ori, adv)
             print(f'epochs: {self.ep}, timesteps: {self.t}, actor_loss: {self.history_actor}')
 
         for i in range(self.update_critic_epoch):
-            with torch.autograd.set_detect_anomaly(True):
-                self.critic_update(state_, speed_cache, d_reward)
+            self.critic_update(state_, speed_cache, d_reward)
             print(f'epochs: {self.ep}, timesteps: {self.t}, critic_loss: {self.history_critic}')
 
     def save_model(self, name):

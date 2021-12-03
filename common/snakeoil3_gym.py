@@ -275,6 +275,9 @@ class Client():
         try:
             message = repr(self.R)
             self.so.sendto(message.encode(), (self.host, self.port))
+
+            # print(self.S.d['trackPos'])
+
         except socket.error as emsg:
             print("Error sending to server: %s Message %s" % (emsg[1],str(emsg[0])))
             sys.exit(-1)

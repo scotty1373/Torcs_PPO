@@ -65,7 +65,7 @@ if __name__ == '__main__':
         ep_rh = 0
 
         # 数据维度初始化
-        _, speedX, _, _, _, _, track, _, image, _ = agent.data_pcs(obs)
+        _, _, _, _, _, _, track, _, image, speedX = agent.data_pcs(obs)
         state_t = np.stack((image, image, image, image), axis=0).reshape((1, -1, 64, 64))
         speedX = np.array(speedX).reshape(1)
         speedX = np.stack((speedX, speedX, speedX, speedX), axis=1)
@@ -75,10 +75,11 @@ if __name__ == '__main__':
 
             action = np.array((action_acc.detach().numpy(), action_ori.detach().numpy()), dtype='float')
             obs_t1, reward, done, _ = env.step(action)
-            focus_t1, speedX_t1, _, _, _, _, track_t1, _, image_t1, _ = agent.data_pcs(obs_t1)
+            focus_t1, _, _, _, _, _, track_t1, _, image_t1, speedX_t1 = agent.data_pcs(obs_t1)
             state_t1 = np.append(image_t1, state_t[:, :3, :, :], axis=1)
             speedX_t1 = np.reshape(speedX_t1, (1, 1))
             speedX_t1 = np.append(speedX_t1, speedX[:, :3], axis=1)
+            print(reward)
             ep_rh += reward
 
             agent.state_store_memory(state_t, speedX, action_acc.detach().numpy().reshape(-1, 1),
@@ -88,7 +89,8 @@ if __name__ == '__main__':
             state_t = state_t1
             speedX = speedX_t1
 
-            if (t+1) % agent.batch_size == 0 or t == (MAX_STEP_EPISODE - 1):
+            if (t+1) % agent.batch_size == 0 or t == (MAX_STEP_EPISODE - 1) or (done and (t+1) % agent.batch_size > 16):
+                print(f't leangth: {t}')
                 s_t, sx_t, a_acc, a_ori, rd, _, _ = zip(*agent.memory)
                 s_t = np.concatenate(s_t).squeeze()
                 sx_t = np.concatenate(sx_t).squeeze()

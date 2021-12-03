@@ -11,18 +11,19 @@ class Common(nn.Module):
         super(Common, self).__init__()
         self.Conv1 = nn.Conv2d(in_channels=in_channel, out_channels=32,
                                kernel_size=(5, 5), stride=(3, 3), padding=(0, 0))
-        self.activation1 = nn.ReLU(inplace=False)
+        self.activation1 = nn.ReLU(inplace=True)
         self.Conv2 = nn.Conv2d(in_channels=32, out_channels=64,
                                kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
-        self.activation2 = nn.ReLU(inplace=False)
+        self.activation2 = nn.ReLU(inplace=True)
         self.Conv3 = nn.Conv2d(in_channels=64, out_channels=128,
                                kernel_size=(3, 3), stride=(2, 2), padding=(1, 1))
-        self.activation3 = nn.ReLU(inplace=False)
+        self.activation3 = nn.ReLU(inplace=True)
         self.Conv4 = nn.Conv2d(in_channels=128, out_channels=256,
                                kernel_size=(3, 3), stride=(1, 1), padding=(1, 1))
-        self.activation4 = nn.ReLU(inplace=False)
-        # self.Dense1 = nn.Linear(6400, 512)
-        self.position = nn.Linear(4, 128)
+        self.activation4 = nn.ReLU(inplace=True)
+        self.Dense1 = nn.Linear(6400, 512)
+        self.Dense1act = nn.ReLU(inplace=True)
+        self.position = nn.Linear(4, 64)
 
     def forward(self, x, y):
         common = self.Conv1(x)
@@ -35,44 +36,48 @@ class Common(nn.Module):
         common = self.activation4(common)
         common = torch.flatten(common, start_dim=1, end_dim=-1)
 
-        # down_shape_vector = self.Dense1(common)
+        down_shape_vector = self.Dense1(common)
+        down_shape_vector = self.Dense1act(down_shape_vector)
         vehicle_pos = self.position(y)
 
-        concat_vector = torch.cat([common, vehicle_pos], dim=1)
+        concat_vector = torch.cat([down_shape_vector, vehicle_pos], dim=1)
         return concat_vector
 
 
 class Actor_builder(nn.Module):
     def __init__(self):
         super(Actor_builder, self).__init__()
-        self.common = nn.Linear(6528, 512)
-        self.common_act = nn.ReLU()
+        # self.common = nn.Linear(6528, 512)
+        # self.common_act = nn.ReLU()
 
-        self.acc_commonDense1 = nn.Linear(512, 128)
+        self.acc_commonDense1 = nn.Linear(576, 128)
         self.acc_meanact1 = nn.ReLU()
         self.acc_meanDense2 = nn.Linear(128, 1)
         self.acc_meanout = nn.Tanh()
         self.acc_sigmaDense1 = nn.Linear(128, 1)
         self.acc_sigmaout = nn.Softplus()
 
-        self.ori_commonDense1 = nn.Linear(512, 128)
+        self.ori_commonDense1 = nn.Linear(576, 128)
         self.ori_meanact1 = nn.ReLU()
         self.ori_meanDense2 = nn.Linear(128, 1)
+        torch.nn.init.uniform_(self.ori_meanDense2.weight, a=-1e-3, b=1e-3)
         self.ori_meanout = nn.Tanh()
         self.ori_sigmaDense1 = nn.Linear(128, 1)
+        torch.nn.init.uniform_(self.ori_sigmaDense1.weight, a=-1e-3, b=1e-3)
         self.ori_sigmaout = nn.Softplus()
 
     def forward(self, common):
-        common_data = self.common(common)
-        common_data = self.common_act(common_data)
-        acc_common = self.acc_commonDense1(common_data)
+        # common_data = self.common(common)
+        # common_data = self.common_act(common_data)
+
+        acc_common = self.acc_commonDense1(common)
         acc_mean = self.acc_meanact1(acc_common)
         acc_mean = self.acc_meanDense2(acc_mean)
         acc_mean = self.acc_meanout(acc_mean)
         acc_sigma = self.acc_sigmaDense1(acc_common)
         acc_sigma = self.acc_sigmaout(acc_sigma)
 
-        ori_common = self.ori_commonDense1(common_data)
+        ori_common = self.ori_commonDense1(common)
         ori_mean = self.ori_meanact1(ori_common)
         ori_mean = self.ori_meanDense2(ori_mean)
         ori_mean = self.ori_meanout(ori_mean)
@@ -84,7 +89,7 @@ class Actor_builder(nn.Module):
 class Critic_builder(nn.Module):
     def __init__(self):
         super(Critic_builder, self).__init__()
-        self.common = nn.Linear(6528, 512)
+        self.common = nn.Linear(576, 512)
         self.common_act = nn.ReLU()
         self.vDense1 = nn.Linear(512, 128)
         self.vact1 = nn.ReLU(inplace=True)
