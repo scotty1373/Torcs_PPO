@@ -60,10 +60,10 @@ class Actor_builder(nn.Module):
         self.ori_commonDense1 = nn.Linear(640, 256)
         self.ori_meanact1 = nn.ReLU()
         self.ori_meanDense2 = nn.Linear(256, 1)
-        torch.nn.init.uniform_(self.ori_meanDense2.weight, a=-1e-5, b=1e-5)
+        torch.nn.init.uniform_(self.ori_meanDense2.weight, a=0, b=3e-3)
         self.ori_meanout = nn.Tanh()
         self.ori_sigmaDense1 = nn.Linear(256, 1)
-        torch.nn.init.uniform_(self.ori_sigmaDense1.weight, a=-1e-5, b=1e-5)
+        torch.nn.init.uniform_(self.ori_sigmaDense1.weight, a=-1e-3, b=1e-3)
         self.ori_sigmaout = nn.Softplus()
 
     def forward(self, common):

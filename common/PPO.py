@@ -9,7 +9,7 @@ from PIL import Image
 import numpy as np
 import copy
 
-LEARNING_RATE_ACTOR = 1e-4
+LEARNING_RATE_ACTOR = 1e-5
 LEARNING_RATE_CRITIC = 1e-4
 DECAY = 0.95
 EPILSON = 0.2
@@ -62,7 +62,7 @@ class PPO:
 
         prob_ori = torch.clamp(orie.sample(), -0.5, 0.5)
         log_prob_ori = orie.log_prob(prob_ori)
-        prob_accel = torch.clamp(accel.sample(), -0.3, 0.5)
+        prob_accel = torch.clamp(accel.sample(), -0.3, 1)
         log_prob_accel = accel.log_prob(prob_accel)
 
         self.common.train()
@@ -106,7 +106,7 @@ class PPO:
         self.history_critic = critic_loss.detach().item()
         self.c_opt.zero_grad()
         critic_loss.backward(retain_graph=True)
-        torch.nn.utils.clip_grad_norm(chain(self.common.parameters(), self.v.parameters()), max_norm=5, norm_type=2)
+        torch.nn.utils.clip_grad_norm_(chain(self.common.parameters(), self.v.parameters()), max_norm=5, norm_type=2)
         self.c_opt.step()
 
     def actor_update(self, state, speed_, action_acc, action_ori, advantage):
@@ -135,14 +135,14 @@ class PPO:
             pi_dist_ori = Normal(pi_ori_m, pi_ori_s + 1e-8)
             pi_dist_ori_old = Normal(pi_ori_m_old, pi_ori_s_old + 1e-8)
 
-            logprob_acc = pi_dist_acc.log_prob(action_acc.reshape(-1, 1))
-            logprob_acc_old = pi_dist_acc_old.log_prob(action_acc.reshape(-1, 1))
+            logprob_acc = pi_dist_acc.cdf(action_acc.reshape(-1, 1))
+            logprob_acc_old = pi_dist_acc_old.cdf(action_acc.reshape(-1, 1))
 
-            logprob_ori = pi_dist_ori.log_prob(action_ori.reshape(-1, 1))
-            logprob_ori_old = pi_dist_ori_old.log_prob(action_ori.reshape(-1, 1))
+            logprob_ori = pi_dist_ori.cdf(action_ori.reshape(-1, 1))
+            logprob_ori_old = pi_dist_ori_old.cdf(action_ori.reshape(-1, 1))
 
-            ratio_acc = torch.exp(logprob_acc - logprob_acc_old)
-            ratio_ori = torch.exp(logprob_ori - logprob_ori_old)
+            ratio_acc = logprob_acc / (logprob_acc_old + 1e-8)
+            ratio_ori = logprob_ori / (logprob_ori_old + 1e-8)
 
             if torch.any(torch.isnan(ratio_acc)) or torch.any(torch.isinf(ratio_acc)):
                 print('invild value sigma pi')
