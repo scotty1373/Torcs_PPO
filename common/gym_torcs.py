@@ -132,7 +132,7 @@ class TorcsEnv:
         # direction-dependent positive reward
         trackPos = np.array(obs['trackPos'])
         track = np.array(obs['track'])
-        sp = np.array(obs['speedX'])
+        sp = np.array(obs['speedX'])/self.default_speed
         angle = np.array(obs['angle'])
         progress = sp*np.cos(angle) - np.absolute(sp*np.sin(angle)) - sp*np.absolute(trackPos)
 
@@ -265,7 +265,8 @@ class TorcsEnv:
                      'track',
                      'wheelSpinVel',
                      'img',
-                     'trackPos']
+                     'trackPos',
+                     'angle']
             Observation = col.namedtuple('Observaion', names)
 
             # Get RGB from observation
@@ -280,4 +281,5 @@ class TorcsEnv:
                                track=np.array(raw_obs['track'], dtype=np.float32)/200.,
                                wheelSpinVel=np.array(raw_obs['wheelSpinVel'], dtype=np.float32),
                                img=image_rgb,
-                               trackPos=np.array(raw_obs['trackPos'], dtype= np.float32))
+                               trackPos=np.array(raw_obs['trackPos'], dtype=np.float32),
+                               angle=np.array(raw_obs['angle'], dtype=np.float32))
