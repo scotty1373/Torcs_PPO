@@ -9,9 +9,9 @@ from PIL import Image
 import numpy as np
 import copy
 
-LEARNING_RATE_ACTOR = 1e-5
+LEARNING_RATE_ACTOR = 1e-4
 LEARNING_RATE_CRITIC = 1e-4
-DECAY = 0.95
+DECAY = 0.99
 EPILSON = 0.2
 torch.autograd.set_detect_anomaly(True)
 
@@ -54,7 +54,6 @@ class PPO:
         self.pi.eval()
         common_feature = self.common(obs_, speed_)
         (acc_m, acc_s), (ori_m, ori_s) = self.pi(common_feature)
-        # print(f'mu: {mean.cpu().item()}')
 
         # 增加1e-8防止正态分布计算时除法越界
         orie = Normal(ori_m.cpu().detach(), ori_s.cpu().detach() + 1e-8)
@@ -62,7 +61,7 @@ class PPO:
 
         prob_ori = torch.clamp(orie.sample(), -0.5, 0.5)
         log_prob_ori = orie.log_prob(prob_ori)
-        prob_accel = torch.clamp(accel.sample(), -0.3, 1)
+        prob_accel = accel.sample()
         log_prob_accel = accel.log_prob(prob_accel)
 
         self.common.train()
@@ -106,7 +105,7 @@ class PPO:
         self.history_critic = critic_loss.detach().item()
         self.c_opt.zero_grad()
         critic_loss.backward(retain_graph=True)
-        torch.nn.utils.clip_grad_norm_(chain(self.common.parameters(), self.v.parameters()), max_norm=5, norm_type=2)
+        torch.nn.utils.clip_grad_norm_(chain(self.common.parameters(), self.v.parameters()), max_norm=1, norm_type=2)
         self.c_opt.step()
 
     def actor_update(self, state, speed_, action_acc, action_ori, advantage):
@@ -124,16 +123,15 @@ class PPO:
 
             if torch.any(torch.isnan(pi_acc_s)):
                 print('invild value sigma pi')
-            # print(pi_acc_m, pi_acc_s)
-            # print(pi_ori_m, pi_ori_s)
+
 
             # 增加1e-8防止正态分布计算时除法越界
             pi_dist_acc = Normal(pi_acc_m, pi_acc_s + 1e-8)
-            pi_dist_acc_old = Normal(pi_acc_m_old, pi_acc_s_old + 1e-8)
+            pi_dist_acc_old = Normal(pi_acc_m_old.detach(), pi_acc_s_old.detach() + 1e-8)
 
             # 增加1e-8防止正态分布计算时除法越界
             pi_dist_ori = Normal(pi_ori_m, pi_ori_s + 1e-8)
-            pi_dist_ori_old = Normal(pi_ori_m_old, pi_ori_s_old + 1e-8)
+            pi_dist_ori_old = Normal(pi_ori_m_old.detach(), pi_ori_s_old.detach() + 1e-8)
 
             logprob_acc = pi_dist_acc.cdf(action_acc.reshape(-1, 1))
             logprob_acc_old = pi_dist_acc_old.cdf(action_acc.reshape(-1, 1))
@@ -150,11 +148,8 @@ class PPO:
             if torch.any(torch.isnan(ratio_ori)) or torch.any(torch.isinf(ratio_ori)):
                 print('invild value sigma pi')
 
-            print(ratio_acc)
-            print(ratio_ori)
-
             # 切换ratio中inf值为固定值，防止inf进入backward计算
-            ratio_ori = torch.where(torch.isinf(ratio_ori), torch.full_like(ratio_ori, 3), ratio_ori)
+            # ratio_ori = torch.where(torch.isinf(ratio_ori), torch.full_like(ratio_ori, 3), ratio_ori)
 
             surrogate1_acc = ratio_acc * advantage
             surrogate2_acc = torch.clamp(ratio_acc, 1-self.epilson, 1+self.epilson) * advantage
@@ -166,16 +161,19 @@ class PPO:
             ori_loss = torch.min(torch.cat((surrogate1_ori, surrogate2_ori), dim=1), dim=1)[0]
 
             self.a_opt.zero_grad()
-            actor_loss = acc_loss + ori_loss
+            # actor_loss = acc_loss + ori_loss
+            actor_loss = ori_loss
             actor_loss = -torch.mean(actor_loss)
             self.history_actor = actor_loss.detach().item()
 
             actor_loss.backward(retain_graph=True)
+            torch.nn.utils.clip_grad_norm_(chain(self.common.parameters(), self.pi.parameters()), max_norm=1, norm_type=2)
+            print(self.pi.ori_meanDense4.weight.grad)
             self.a_opt.step()
 
     def update(self, state, speed_, action_acc, action_ori, discount_reward_):
-        self.hard_update(self.pi, self.piold)
         self.hard_update(self.common, self.commonold)
+        self.hard_update(self.pi, self.piold)
         state_ = torch.Tensor(state)
         speed_cache = torch.Tensor(speed_)
         act_acc = action_acc

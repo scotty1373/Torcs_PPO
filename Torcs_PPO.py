@@ -2,6 +2,9 @@
 # -*- coding: utf-8 -*-
 import random
 import sys
+
+import torch
+
 sys.path.append("./common/")
 from collections import deque
 from skimage.color import rgb2gray
@@ -11,6 +14,8 @@ import numpy as np
 import platform
 import time
 import os
+
+torch.set_printoptions(sci_mode=False)
 
 
 BATCH_SIZE = 16
@@ -44,7 +49,7 @@ def image_process(obs_data):
 
 
 if __name__ == '__main__':
-    env = TorcsEnv(vision=VISION, throttle=True)
+    env = TorcsEnv(vision=VISION, throttle=False)
 
     test_train_flag = TRAINABLE
 
@@ -53,7 +58,7 @@ if __name__ == '__main__':
     action_range = env.action_space.high            # [1., 1., 1.]  ~  [-1.,  0.,  0.]
 
     agent = PPO(in_channel=CHANNEL, in_shape=VISION_SHAPE, action_space=action_range, batch_size=BATCH_SIZE)
-    epochs = 500
+    epochs = 2000
     ep_history = []
 
     for ep in range(epochs):
@@ -73,13 +78,17 @@ if __name__ == '__main__':
         for t in range(MAX_STEP_EPISODE):
             (action_acc, logprob_acc_), (action_ori, logprob_ori_) = agent.get_action(state_t, speedX)
 
-            action = np.array((action_ori.detach().numpy(), action_acc.detach().numpy()), dtype='float')
+            # action = np.array((action_ori.detach().numpy(), action_acc.detach().numpy()), dtype='float')
+            action = np.array((action_ori.detach().numpy()), dtype='float')
             obs_t1, reward, done, _ = env.step(action)
+
+            if done and t < MAX_STEP_EPISODE - 1:
+                reward = -10
             focus_t1, _, _, _, _, _, track_t1, _, image_t1, speedX_t1 = agent.data_pcs(obs_t1)
             state_t1 = np.append(image_t1, state_t[:, :3, :, :], axis=1)
             speedX_t1 = np.reshape(speedX_t1, (1, 1))
             speedX_t1 = np.append(speedX_t1, speedX[:, :3], axis=1)
-            print(action_ori)
+            # print(action_ori)
             ep_rh += reward
 
             agent.state_store_memory(state_t, speedX, action_acc.detach().numpy().reshape(-1, 1),
