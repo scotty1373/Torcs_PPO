@@ -53,7 +53,7 @@ class PPO:
         log_prob_ori = orie.log_prob(prob_ori)
         self.pi.train()
 
-        return prob_ori, log_prob_ori
+        return prob_ori, ac_mean.cpu().detach().item()
 
     def state_store_memory(self, s, ori, r, logprob_ori):
         self.memory.append((s, ori, r, logprob_ori))

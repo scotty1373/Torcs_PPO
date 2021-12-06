@@ -132,9 +132,9 @@ class TorcsEnv:
         # direction-dependent positive reward
         trackPos = np.array(obs['trackPos'])
         track = np.array(obs['track'])
-        sp = np.array(obs['speedX'])/self.default_speed
+        sp = np.array(obs['speedX'])/self.default_speed*5
         angle = np.array(obs['angle'])
-        progress = sp*np.cos(angle) - np.absolute(sp*np.sin(angle)) - sp*np.absolute(trackPos)
+        progress = sp*np.cos(angle) - np.absolute(sp*np.sin(angle))*1.5 - sp*np.absolute(trackPos)*1.5
 
         reward = progress
 
@@ -149,10 +149,10 @@ class TorcsEnv:
             episode_terminate = True
             client.R.d['meta'] = True
 
-        if self.terminal_judge_start < self.time_step: # Episode terminates if the progress of agent is small
-            if progress < self.termination_limit_progress:
-                episode_terminate = True
-                client.R.d['meta'] = True
+        # if self.terminal_judge_start < self.time_step: # Episode terminates if the progress of agent is small
+        #     if progress < self.termination_limit_progress:
+        #         episode_terminate = True
+        #         client.R.d['meta'] = True
 
         if np.cos(obs['angle']) < 0: # Episode is terminated if the agent runs backward
             episode_terminate = True
