@@ -19,7 +19,7 @@ TRAINABLE = True
 VISION = True
 DECAY = 0.95
 VISION_SHAPE = (64, 64)
-STATE_DIM = 3
+STATE_DIM = 8
 CHANNEL = 4
 
 
@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
         # 数据维度初始化
         _, speedX, _, _, _, _, track, _, _, track_pos, angle = agent.data_pcs(obs)
-        state_t = np.hstack((speedX, track_pos, angle))
+        state_t = np.hstack((speedX, track_pos, angle, track[[0, 5, 9, 13, 18]]))
 
         for t in range(MAX_STEP_EPISODE):
             action_ori, logprob_ori_ = agent.get_action(state_t)
@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
             print(reward, logprob_ori_)
 
-            state_t1 = np.hstack((speedX_t1, track_pos_t1, angle_t1))
+            state_t1 = np.hstack((speedX_t1, track_pos_t1, angle_t1, track[[0, 5, 9, 13, 18]]))
 
             ep_rh += reward
 

@@ -9,9 +9,9 @@ from torch.distributions import Normal
 class Actor_Model(nn.Module):
     def __init__(self, state_dim):
         super(Actor_Model, self).__init__()
-        self.Dense1 = nn.Linear(state_dim, 256)
+        self.Dense1 = nn.Linear(state_dim, 512)
         self.Dense1act = nn.ReLU(inplace=True)
-        self.Dense2 = nn.Linear(256, 128)
+        self.Dense2 = nn.Linear(512, 128)
         self.Dense2act = nn.ReLU(inplace=True)
         self.mean_out = nn.Linear(128, 1)
         self.meanact = nn.Tanh()
@@ -36,9 +36,9 @@ class Actor_Model(nn.Module):
 class Critic_Model(nn.Module):
     def __init__(self, state_dim):
         super(Critic_Model, self).__init__()
-        self.Dense1 = nn.Linear(state_dim, 256)
+        self.Dense1 = nn.Linear(state_dim, 512)
         self.Dense1act = nn.ReLU(inplace=True)
-        self.Dense2 = nn.Linear(256, 128)
+        self.Dense2 = nn.Linear(512, 128)
         self.Dense2act = nn.ReLU(inplace=True)
         self.Dense3 = nn.Linear(128, 1)
         self.Dense3act = nn.ReLU(inplace=True)
